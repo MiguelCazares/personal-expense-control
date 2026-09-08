@@ -53,14 +53,56 @@ pnpm run test:e2e       # migra la DB de test y corre los e2e
 pnpm run dev:check      # lint + format + unit + e2e — correr antes de push
 ```
 
-## Endpoints (F0)
+### Sembrar las categorías base
 
-| Método | Ruta | Auth | Descripción |
-|---|---|---|---|
-| `GET` | `/api/health` | pública | Health check con ping a la DB |
-| `POST` | `/api/auth/register` | pública | Alta del propietario (solo con la tabla vacía) |
-| `POST` | `/api/auth/login` | pública | Devuelve `{ access_token, user }` |
-| `GET` | `/api/auth/me` | Bearer | Usuario del token |
+Una vez creado el usuario, `pnpm run seed:run` carga un set inicial (Nómina, Freelance,
+Tarjeta AMEX, Tarjeta BBVA, Préstamo 1 y 2, Renta, Servicios, Supermercado, Transporte,
+Restaurantes, Salud). Es idempotente: se salta las que ya existan, así que puedes volver a
+correrlo tras agregar entradas a `database/seeds/default-categories.ts`.
+
+## Endpoints
+
+Todo lo que no diga «pública» exige `Authorization: Bearer <token>` y se acota solo a los datos
+del usuario del token.
+
+| Método | Ruta | Descripción |
+|---|---|---|
+| `GET` | `/api/health` | Health check con ping a la DB (pública) |
+| `POST` | `/api/auth/register` | Alta del propietario, solo con la tabla vacía (pública) |
+| `POST` | `/api/auth/login` | Devuelve `{ access_token, user }` (pública) |
+| `GET` | `/api/auth/me` | Usuario del token |
+| `POST` | `/api/categories` | Crea una categoría |
+| `GET` | `/api/categories` | `?name=&type=&nature=&includeArchived=&page=&limit=` |
+| `GET` | `/api/categories/:id` | Detalle |
+| `PATCH` | `/api/categories/:id` | Actualiza o archiva (`{ isArchived: true }`) |
+| `DELETE` | `/api/categories/:id` | Solo si no tiene movimientos; si los tiene, 409 |
+| `POST` | `/api/transactions` | Registra un movimiento |
+| `GET` | `/api/transactions` | `?type=&categoryId=&from=&to=&search=&page=&limit=` |
+| `GET` | `/api/transactions/:id` | Detalle |
+| `PATCH` | `/api/transactions/:id` | Actualiza |
+| `DELETE` | `/api/transactions/:id` | Borra |
+| `GET` | `/api/summary/monthly` | `?period=2026-09` — ingresos, egresos, balance y desglose |
+| `GET` | `/api/summary/cashflow` | `?months=6&until=2026-09` — serie mensual |
+
+### Cómo funcionan los movimientos
+
+El `type` de un movimiento (`INCOME`/`EXPENSE`) **no se manda en el payload**: lo determina la
+categoría, así que no hay forma de registrar un ingreso contra una categoría de egreso.
+
+```bash
+# Un egreso de la tarjeta AMEX
+curl -X POST http://localhost:3010/api/transactions \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"amount":1250.50,"occurredOn":"2026-09-11","categoryId":3,"note":"Pago mensualidad"}'
+
+# El resumen del mes
+curl "http://localhost:3010/api/summary/monthly?period=2026-09" \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+`occurredOn` es un día de calendario (`YYYY-MM-DD`), sin hora ni zona: un gasto del día 1 por la
+noche cuenta en su mes y no se corre al siguiente por conversión a UTC. El mes «en curso» de
+`/api/summary` se resuelve con la `timezone` del usuario.
 
 ## Variables de entorno
 
@@ -80,7 +122,7 @@ pnpm run dev:check      # lint + format + unit + e2e — correr antes de push
 ## Roadmap
 
 - **F0 — hecho.** Esqueleto, config, infraestructura, auth JWT, health, Swagger, migración inicial.
-- **F1.** `categories` + `transactions` + resumen mensual.
+- **F1 — hecho.** `categories` + `transactions` + resumen mensual y cashflow.
 - **F2.** `commitments` + `commitment_occurrences` + crons de materialización y vencidos.
 - **F3.** `alerts` + envío por Telegram.
 - **F4.** Presupuestos por categoría y reportes.

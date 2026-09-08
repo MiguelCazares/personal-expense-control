@@ -1,14 +1,10 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication, HttpStatus, ValidationPipe } from '@nestjs/common';
+import { INestApplication, HttpStatus } from '@nestjs/common';
 import request from 'supertest';
 import { App } from 'supertest/types';
-import { Repository } from 'typeorm';
-import { getRepositoryToken } from '@nestjs/typeorm';
-import { GlobalExceptionFilter } from '@miguelcazares/nestjs-global-exception-filter';
 import { SuccessResponse } from '@miguelcazares/nestjs-response-helper';
-import { AppModule } from 'src/app.module';
-import { UserEntity } from 'src/auth/entities/user.entity';
 import { AuthResponseDto, PublicUserDto } from 'src/auth/dto/auth-response.dto';
+import { createE2eApp } from './helpers/e2e-app';
+import { resetDatabase } from './helpers/reset-db';
 
 jest.setTimeout(30000);
 
@@ -20,34 +16,16 @@ const OWNER = {
 
 describe('AuthController (e2e)', () => {
   let app: INestApplication<App>;
-  let userRepo: Repository<UserEntity>;
 
   beforeAll(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-
-    app = moduleFixture.createNestApplication();
-    app.useLogger(false);
-    app.useGlobalFilters(new GlobalExceptionFilter());
-    app.useGlobalPipes(
-      new ValidationPipe({
-        whitelist: true,
-        forbidNonWhitelisted: true,
-        transform: true,
-        errorHttpStatusCode: HttpStatus.UNPROCESSABLE_ENTITY,
-      }),
-    );
-    await app.init();
-
-    userRepo = app.get<Repository<UserEntity>>(getRepositoryToken(UserEntity));
+    app = await createE2eApp();
     // El registro solo abre con la tabla vacía; se limpia para poder correr
     // la suite de forma repetible.
-    await userRepo.clear();
+    await resetDatabase(app);
   });
 
   afterAll(async () => {
-    await userRepo.clear();
+    await resetDatabase(app);
     await app.close();
   });
 

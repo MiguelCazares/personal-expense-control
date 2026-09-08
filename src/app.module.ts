@@ -22,6 +22,9 @@ import { DatabaseModule } from 'src/infrastructure/database.module';
 import { LoggerModule as AppLoggerModule } from 'src/infrastructure/logger.module';
 import { AuthModule } from 'src/auth/auth.module';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
+import { CategoriesModule } from 'src/categories/categories.module';
+import { TransactionsModule } from 'src/transactions/transactions.module';
+import { SummaryModule } from 'src/summary/summary.module';
 
 @Module({
   imports: [
@@ -58,6 +61,9 @@ import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
     DatabaseModule,
     AppLoggerModule,
     AuthModule,
+    CategoriesModule,
+    TransactionsModule,
+    SummaryModule,
   ],
   controllers: [AppController],
   providers: [

@@ -32,6 +32,13 @@ NODE_ENV=test npx jest src/auth/auth.service.spec.ts     # un archivo
 NODE_ENV=test npx jest -t "closes registration"          # un test por nombre
 ```
 
+Las suites e2e comparten **una sola base de test y la truncan** en `beforeAll`
+(`test/helpers/reset-db.ts`). Por eso `--runInBand` no es opcional, y por eso no se puede
+tener dos corridas de jest a la vez contra la misma DB: se borran los datos entre ellas y
+salen fallos fantasma. Si ves un fallo raro e irreproducible, revisa que no haya quedado un
+jest vivo (`pkill -f jest`). Al agregar tablas nuevas, súmalas al TRUNCATE del helper o la
+limpieza dejará residuos.
+
 ts-jest corre en modo transpile-only, gobernado por `isolatedModules: true` en `tsconfig.json`
 (no hay bloque `transform` en `jest.config.ts`). No lo quites: construir el programa completo de
 TypeScript se pasa del techo de heap del runner de CI y el job muere con OOM (exit 134). Los
@@ -76,7 +83,7 @@ resuelve el dueño con `@UserId()` (`src/common/decorators/user-id.decorator.ts`
 al `@BusinessId()` del `client-gateway`. Nunca aceptes un `userId` del body o del query: sale
 del token o no sale.
 
-## Modelo de dominio (F1-F3, aún por construir)
+## Modelo de dominio
 
 La distinción que sostiene todo el diseño: **`categories` es clasificación, `commitments` es la
 regla de recurrencia y `commitment_occurrences` es la instancia mensual.** "Tarjeta AMEX" no es
@@ -84,11 +91,43 @@ una categoría con fecha: es un `commitment` con `due_day = 11` que materializa 
 por período. Las alertas cuelgan de la ocurrencia, nunca de la categoría, porque es la ocurrencia
 la que tiene estado (`PENDING`/`PAID`/`OVERDUE`) y monto propio del mes.
 
-- `transactions` es **una sola tabla** con discriminador `type` (`INCOME`/`EXPENSE`), no dos.
-  El balance mensual es una query, no un UNION.
-- Los montos van en `decimal(12,2)` con `numericTransformer`; sin él, Postgres los devuelve
-  como string.
-- Los crons (materializar ocurrencias, marcar vencidas, disparar alertas) se protegen con
+### Lo que ya existe (F1)
+
+**`transactions` es una sola tabla** con discriminador `type` (`INCOME`/`EXPENSE`), no dos. El
+resumen mensual sale de una query con `GROUP BY category`, no de un UNION.
+
+**El cliente nunca manda el `type` de un movimiento**: lo dicta la categoría
+(`TransactionsService.resolveCategory`). Así es imposible registrar un ingreso contra una
+categoría de egreso, y `transaction.type` queda como copia denormalizada que permite filtrar y
+sumar sin joinear `categories`.
+
+**`occurred_on` es `date`, no `timestamptz`**, y TypeORM lo devuelve como `'YYYY-MM-DD'`. Un
+gasto del día 1 a las 23:00 en México caería en el día 2 en UTC y se contaría en el mes
+equivocado. Por lo mismo, todo el cálculo de periodos vive en `summary/utils/period.util.ts` con
+aritmética de strings y fechas UTC, y el mes en curso se resuelve con la `timezone` **del
+usuario** (por eso `SummaryController` recibe `@CurrentUser()` y no solo `@UserId()`).
+
+**Las categorías con movimientos no se borran, se archivan.** `DELETE` responde 409 si hay
+histórico detrás; el camino es `PATCH { isArchived: true }`. Una categoría archivada no admite
+movimientos nuevos pero sigue sumando en los resúmenes de meses cerrados.
+
+**El nombre es único por usuario y tipo, sin distinguir mayúsculas.** Lo garantiza un índice de
+expresión (`lower(name)`) que solo existe en la migración; el service valida antes para dar un
+409 con mensaje decente en vez de un 23505 crudo.
+
+Los montos van en `decimal(12,2)` con `numericTransformer`; sin él Postgres los devuelve como
+string. En agregaciones con `getRawMany()` los `SUM` y `COUNT` llegan igual como string y hay
+que convertirlos a mano.
+
+Cuidado con `groupBy('1')` en el query builder: TypeORM reordena la lista del `SELECT` y el
+ordinal termina apuntando a otra columna. Agrupa siempre por la expresión completa.
+
+### Lo que falta (F2-F3)
+
+- `commitments` + `commitment_occurrences`, con `UNIQUE(commitment_id, period)` para que
+  materializar sea idempotente.
+- `transactions.occurrence_id` (nullable) para conciliar un pago contra su ocurrencia.
+- Los crons (materializar ocurrencias, marcar vencidas, disparar alertas) protegidos con
   `pg_try_advisory_xact_lock`, igual que `subscription-scheduler.service.ts` de `ms-payments`.
 - `due_day = 31` se recorta al último día del mes.
 
