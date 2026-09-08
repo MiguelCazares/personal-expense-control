@@ -1,0 +1,30 @@
+services:
+  ms-expenses-db:
+    image: postgres:18.3
+    container_name: ms-expenses-db
+    ports:
+      - '53010:5432'
+    volumes:
+      - postgresdb:/var/lib/postgresql
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: ms-expenses
+
+  ms-expenses-test-db:
+    image: postgres:18.3
+    container_name: ms-expenses-test-db
+    ports:
+      - '53110:5432'
+    volumes:
+      - postgresdb_test:/var/lib/postgresql
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: secret
+      POSTGRES_DB: ms-expenses-test
+
+volumes:
+  postgresdb:
+    driver: local
+  postgresdb_test:
+    driver: local
