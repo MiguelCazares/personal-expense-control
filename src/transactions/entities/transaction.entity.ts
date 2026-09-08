@@ -10,6 +10,7 @@ import {
 } from 'typeorm';
 import { UserEntity } from 'src/auth/entities/user.entity';
 import { CategoryEntity } from 'src/categories/entities/category.entity';
+import { CommitmentOccurrenceEntity } from 'src/occurrences/entities/commitment-occurrence.entity';
 import { MovementType } from 'src/common/enums/movement-type.enum';
 import { numericTransformer } from 'src/common/transformers/numeric.transformer';
 
@@ -54,6 +55,21 @@ export class TransactionEntity {
   @ManyToOne(() => CategoryEntity, { nullable: false })
   @JoinColumn({ name: 'category_id' })
   category: CategoryEntity;
+
+  /**
+   * Ocurrencia que este movimiento liquida, si aplica. Es lo que convierte un
+   * egreso suelto en "el pago de la AMEX de septiembre": al enlazarlo, el
+   * service recalcula `paid_amount` y el estado de la ocurrencia.
+   */
+  @Column({ name: 'occurrence_id', type: 'int', nullable: true })
+  occurrenceId: number | null;
+
+  @ManyToOne(() => CommitmentOccurrenceEntity, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
+  @JoinColumn({ name: 'occurrence_id' })
+  occurrence: CommitmentOccurrenceEntity | null;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
   note: string | null;

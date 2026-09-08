@@ -1,0 +1,7 @@
+export enum CommitmentKind {
+  CREDIT_CARD = 'CREDIT_CARD',
+  LOAN = 'LOAN',
+  SERVICE = 'SERVICE',
+  SUBSCRIPTION = 'SUBSCRIPTION',
+  OTHER = 'OTHER',
+}

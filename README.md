@@ -83,6 +83,15 @@ del usuario del token.
 | `DELETE` | `/api/transactions/:id` | Borra |
 | `GET` | `/api/summary/monthly` | `?period=2026-09` — ingresos, egresos, balance y desglose |
 | `GET` | `/api/summary/cashflow` | `?months=6&until=2026-09` — serie mensual |
+| `POST` | `/api/commitments` | Crea un compromiso y materializa sus vencimientos |
+| `GET` | `/api/commitments` | `?kind=&categoryId=&includeInactive=&search=&page=&limit=` |
+| `GET` | `/api/commitments/:id` | Detalle |
+| `PATCH` | `/api/commitments/:id` | Actualiza o desactiva (`{ isActive: false }`) |
+| `DELETE` | `/api/commitments/:id` | Solo si ningún vencimiento tiene movimiento; si no, 409 |
+| `GET` | `/api/occurrences/upcoming` | `?days=30` — próximos vencimientos + todo lo vencido |
+| `GET` | `/api/occurrences` | `?status=&commitmentId=&period=&from=&to=&page=&limit=` |
+| `GET` | `/api/occurrences/:id` | Detalle |
+| `PATCH` | `/api/occurrences/:id` | Ajusta el monto del mes u omítelo (`{ status: "SKIPPED" }`) |
 
 ### Cómo funcionan los movimientos
 
@@ -104,6 +113,47 @@ curl "http://localhost:3010/api/summary/monthly?period=2026-09" \
 noche cuenta en su mes y no se corre al siguiente por conversión a UTC. El mes «en curso» de
 `/api/summary` se resuelve con la `timezone` del usuario.
 
+### Compromisos fijos y vencimientos
+
+Un **compromiso** (`commitment`) es la regla: «la tarjeta BBVA vence el día 1 de cada mes». De
+ella se materializa un **vencimiento** (`occurrence`) por mes, que es lo que tiene estado y
+monto propios.
+
+```bash
+# La BBVA vence el día 1; la AMEX el 11
+curl -X POST http://localhost:3010/api/commitments \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"name":"Tarjeta de crédito BBVA","categoryId":4,"kind":"CREDIT_CARD","dueDay":1,"expectedAmount":4500,"startPeriod":"2026-09"}'
+
+# Qué se paga en los próximos 30 días (más lo ya vencido)
+curl "http://localhost:3010/api/occurrences/upcoming?days=30" -H "Authorization: Bearer $TOKEN"
+```
+
+Al crear el compromiso se materializan de una vez el mes actual y los 3 siguientes; un cron
+diario mantiene esa ventana. Detalles que importan:
+
+- **Solo se cuelgan de categorías `FIXED`.** Un compromiso sobre «Restaurantes» no tiene sentido
+  y se rechaza con 400.
+- **`dueDay: 31` se recorta al último día del mes**: en febrero cae el 28 (o 29), no se desborda.
+- **El monto de cada mes es independiente.** `PATCH /api/occurrences/:id { expectedAmount }`
+  registra el corte real de la tarjeta sin tocar el estimado del compromiso.
+- **Un préstamo con `totalInstallments` se apaga solo** al llegar a su última mensualidad.
+- **Los pagos se concilian** mandando `occurrenceId` al crear el movimiento: el vencimiento
+  recalcula su `paidAmount` y pasa a `PARTIAL` o `PAID`. Borrar el movimiento lo revierte.
+- **Cambiar el día o el monto del compromiso solo mueve lo aún pendiente**; lo pagado y lo
+  omitido son historia y no se reescriben.
+
+### Los crons
+
+| Cron | Hora | Qué hace |
+|---|---|---|
+| `materializeUpcoming` | 00:10 | Rellena los próximos 3 meses de cada compromiso activo |
+| `markOverdue` | 00:20 | Pasa a `OVERDUE` lo pendiente cuya fecha ya pasó |
+
+Ambos se protegen con un advisory lock de Postgres, así que con varias instancias solo una hace
+el trabajo. El «hoy» se calcula por usuario con su `timezone`: un vencimiento no está atrasado
+hasta que terminó el día de quien tiene que pagarlo.
+
 ## Variables de entorno
 
 | Variable | Requerida | Notas |
@@ -123,6 +173,6 @@ noche cuenta en su mes y no se corre al siguiente por conversión a UTC. El mes 
 
 - **F0 — hecho.** Esqueleto, config, infraestructura, auth JWT, health, Swagger, migración inicial.
 - **F1 — hecho.** `categories` + `transactions` + resumen mensual y cashflow.
-- **F2.** `commitments` + `commitment_occurrences` + crons de materialización y vencidos.
+- **F2 — hecho.** `commitments` + `commitment_occurrences`, crons de materialización y vencidos, conciliación de pagos.
 - **F3.** `alerts` + envío por Telegram.
 - **F4.** Presupuestos por categoría y reportes.

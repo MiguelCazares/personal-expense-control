@@ -7,13 +7,18 @@ import { TransactionEntity } from 'src/transactions/entities/transaction.entity'
 import { CategoryEntity } from 'src/categories/entities/category.entity';
 import { MovementType } from 'src/common/enums/movement-type.enum';
 import { CategoryNature } from 'src/categories/enums/category-nature.enum';
+import { CommitmentOccurrenceEntity } from 'src/occurrences/entities/commitment-occurrence.entity';
+import { OccurrencesService } from 'src/occurrences/occurrences.service';
 
 const USER_ID = 1;
+const TZ = 'America/Mexico_City';
 
 describe('TransactionsService', () => {
   let service: TransactionsService;
   let transactionRepo: jest.Mocked<Repository<TransactionEntity>>;
   let categoryRepo: jest.Mocked<Repository<CategoryEntity>>;
+  let occurrenceRepo: jest.Mocked<Repository<CommitmentOccurrenceEntity>>;
+  let occurrencesService: jest.Mocked<OccurrencesService>;
   let queryBuilder: { [key: string]: jest.Mock };
 
   const buildCategory = (
@@ -74,12 +79,25 @@ describe('TransactionsService', () => {
           provide: getRepositoryToken(CategoryEntity),
           useValue: { findOneBy: jest.fn() },
         },
+        {
+          provide: getRepositoryToken(CommitmentOccurrenceEntity),
+          useValue: { findOne: jest.fn() },
+        },
+        {
+          provide: OccurrencesService,
+          useValue: {
+            recalculate: jest.fn(),
+            todayFor: jest.fn(() => '2026-09-11'),
+          },
+        },
       ],
     }).compile();
 
     service = module.get(TransactionsService);
     transactionRepo = module.get(getRepositoryToken(TransactionEntity));
     categoryRepo = module.get(getRepositoryToken(CategoryEntity));
+    occurrenceRepo = module.get(getRepositoryToken(CommitmentOccurrenceEntity));
+    occurrencesService = module.get(OccurrencesService);
   });
 
   describe('create', () => {
@@ -88,7 +106,7 @@ describe('TransactionsService', () => {
         buildCategory({ type: MovementType.INCOME }),
       );
 
-      await service.create(USER_ID, {
+      await service.create(USER_ID, TZ, {
         amount: 32000,
         occurredOn: '2026-09-01',
         categoryId: 4,
@@ -104,7 +122,7 @@ describe('TransactionsService', () => {
       categoryRepo.findOneBy.mockResolvedValue(null);
 
       await expect(
-        service.create(USER_ID, {
+        service.create(USER_ID, TZ, {
           amount: 100,
           occurredOn: '2026-09-01',
           categoryId: 99,
@@ -118,7 +136,7 @@ describe('TransactionsService', () => {
       );
 
       await expect(
-        service.create(USER_ID, {
+        service.create(USER_ID, TZ, {
           amount: 100,
           occurredOn: '2026-09-01',
           categoryId: 4,
@@ -135,10 +153,82 @@ describe('TransactionsService', () => {
         buildCategory({ id: 7, type: MovementType.INCOME }),
       );
 
-      await service.update(USER_ID, 12, { categoryId: 7 });
+      await service.update(USER_ID, TZ, 12, { categoryId: 7 });
 
       const saved = transactionRepo.save.mock.calls[0][0] as TransactionEntity;
       expect(saved.type).toBe(MovementType.INCOME);
+    });
+  });
+
+  describe('conciliación con vencimientos', () => {
+    it('recalcula la ocurrencia al enlazar un pago', async () => {
+      categoryRepo.findOneBy.mockResolvedValue(buildCategory());
+      occurrenceRepo.findOne.mockResolvedValue({
+        id: 7,
+        userId: USER_ID,
+        commitment: { categoryId: 4 },
+      } as CommitmentOccurrenceEntity);
+
+      await service.create(USER_ID, TZ, {
+        amount: 1200,
+        occurredOn: '2026-09-10',
+        categoryId: 4,
+        occurrenceId: 7,
+      });
+
+      expect(occurrencesService.recalculate).toHaveBeenCalledWith(
+        7,
+        '2026-09-11',
+      );
+    });
+
+    it('rechaza enlazar un vencimiento de otra categoría', async () => {
+      categoryRepo.findOneBy.mockResolvedValue(buildCategory());
+      occurrenceRepo.findOne.mockResolvedValue({
+        id: 7,
+        userId: USER_ID,
+        commitment: { categoryId: 99 },
+      } as CommitmentOccurrenceEntity);
+
+      await expect(
+        service.create(USER_ID, TZ, {
+          amount: 1200,
+          occurredOn: '2026-09-10',
+          categoryId: 4,
+          occurrenceId: 7,
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    it('al mover el pago recalcula el vencimiento viejo y el nuevo', async () => {
+      transactionRepo.findOne.mockResolvedValue(
+        buildTransaction({ occurrenceId: 7 }),
+      );
+      occurrenceRepo.findOne.mockResolvedValue({
+        id: 8,
+        userId: USER_ID,
+        commitment: { categoryId: 4 },
+      } as CommitmentOccurrenceEntity);
+
+      await service.update(USER_ID, TZ, 12, { occurrenceId: 8 });
+
+      const recalculated = occurrencesService.recalculate.mock.calls.map(
+        (call) => call[0],
+      );
+      expect(recalculated).toEqual(expect.arrayContaining([7, 8]));
+    });
+
+    it('recalcula el vencimiento al borrar el pago', async () => {
+      transactionRepo.findOne.mockResolvedValue(
+        buildTransaction({ occurrenceId: 7 }),
+      );
+
+      await service.remove(USER_ID, TZ, 12);
+
+      expect(occurrencesService.recalculate).toHaveBeenCalledWith(
+        7,
+        '2026-09-11',
+      );
     });
   });
 

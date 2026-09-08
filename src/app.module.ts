@@ -25,6 +25,8 @@ import { JwtAuthGuard } from 'src/auth/guards/jwt-auth.guard';
 import { CategoriesModule } from 'src/categories/categories.module';
 import { TransactionsModule } from 'src/transactions/transactions.module';
 import { SummaryModule } from 'src/summary/summary.module';
+import { CommitmentsModule } from 'src/commitments/commitments.module';
+import { OccurrencesModule } from 'src/occurrences/occurrences.module';
 
 @Module({
   imports: [
@@ -64,6 +66,8 @@ import { SummaryModule } from 'src/summary/summary.module';
     CategoriesModule,
     TransactionsModule,
     SummaryModule,
+    CommitmentsModule,
+    OccurrencesModule,
   ],
   controllers: [AppController],
   providers: [

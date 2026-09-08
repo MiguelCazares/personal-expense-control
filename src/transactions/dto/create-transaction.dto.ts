@@ -42,6 +42,17 @@ export class CreateTransactionDto {
   @Min(1)
   categoryId: number;
 
+  @ApiPropertyOptional({
+    example: 7,
+    description:
+      'Vencimiento que este movimiento liquida. Al enlazarlo se recalcula su monto pagado y su estado.',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  occurrenceId?: number;
+
   @ApiPropertyOptional({ example: 'Pago mensualidad', maxLength: 255 })
   @IsOptional()
   @IsString()

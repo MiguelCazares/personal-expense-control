@@ -23,6 +23,8 @@ import { UpdateTransactionDto } from 'src/transactions/dto/update-transaction.dt
 import { FilterTransactionDto } from 'src/transactions/dto/filter-transaction.dto';
 import { PaginatedResponseDto } from 'src/common/dto/pagination-response.dto';
 import { UserId } from 'src/common/decorators/user-id.decorator';
+import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
+import { UserEntity } from 'src/auth/entities/user.entity';
 import { TransactionsSwagger } from 'src/transactions/swagger/transactions.swagger';
 
 @ApiTags('Transactions')
@@ -35,10 +37,14 @@ export class TransactionsController {
   @ApiOperation({ summary: 'Registra un ingreso o egreso' })
   @TransactionsSwagger.Create()
   async create(
-    @UserId() userId: number,
+    @CurrentUser() user: UserEntity,
     @Body() dto: CreateTransactionDto,
   ): Promise<JsonResponse<TransactionEntity>> {
-    const result = await this.transactionsService.create(userId, dto);
+    const result = await this.transactionsService.create(
+      user.id,
+      user.timezone,
+      dto,
+    );
     return ResponseHelper.jsendSuccess(result, HttpStatus.CREATED);
   }
 
@@ -68,11 +74,16 @@ export class TransactionsController {
   @ApiOperation({ summary: 'Actualiza un movimiento' })
   @TransactionsSwagger.Update()
   async update(
-    @UserId() userId: number,
+    @CurrentUser() user: UserEntity,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateTransactionDto,
   ): Promise<JsonResponse<TransactionEntity>> {
-    const result = await this.transactionsService.update(userId, id, dto);
+    const result = await this.transactionsService.update(
+      user.id,
+      user.timezone,
+      id,
+      dto,
+    );
     return ResponseHelper.jsendSuccess(result);
   }
 
@@ -81,9 +92,9 @@ export class TransactionsController {
   @ApiOperation({ summary: 'Borra un movimiento' })
   @TransactionsSwagger.Remove()
   async remove(
-    @UserId() userId: number,
+    @CurrentUser() user: UserEntity,
     @Param('id', ParseIntPipe) id: number,
   ): Promise<void> {
-    await this.transactionsService.remove(userId, id);
+    await this.transactionsService.remove(user.id, user.timezone, id);
   }
 }

@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { TransactionsController } from 'src/transactions/transactions.controller';
-import { TransactionsService } from 'src/transactions/transactions.service';
-import { TransactionEntity } from 'src/transactions/entities/transaction.entity';
+import { CommitmentsController } from 'src/commitments/commitments.controller';
+import { CommitmentsService } from 'src/commitments/commitments.service';
+import { CommitmentEntity } from 'src/commitments/entities/commitment.entity';
 import { CategoryEntity } from 'src/categories/entities/category.entity';
 import { CommitmentOccurrenceEntity } from 'src/occurrences/entities/commitment-occurrence.entity';
 import { OccurrencesModule } from 'src/occurrences/occurrences.module';
@@ -10,14 +10,14 @@ import { OccurrencesModule } from 'src/occurrences/occurrences.module';
 @Module({
   imports: [
     TypeOrmModule.forFeature([
-      TransactionEntity,
+      CommitmentEntity,
       CategoryEntity,
       CommitmentOccurrenceEntity,
     ]),
     OccurrencesModule,
   ],
-  controllers: [TransactionsController],
-  providers: [TransactionsService],
-  exports: [TransactionsService],
+  controllers: [CommitmentsController],
+  providers: [CommitmentsService],
+  exports: [CommitmentsService],
 })
-export class TransactionsModule {}
+export class CommitmentsModule {}

@@ -122,14 +122,45 @@ que convertirlos a mano.
 Cuidado con `groupBy('1')` en el query builder: TypeORM reordena la lista del `SELECT` y el
 ordinal termina apuntando a otra columna. Agrupa siempre por la expresión completa.
 
-### Lo que falta (F2-F3)
+### Compromisos y vencimientos (F2)
 
-- `commitments` + `commitment_occurrences`, con `UNIQUE(commitment_id, period)` para que
-  materializar sea idempotente.
-- `transactions.occurrence_id` (nullable) para conciliar un pago contra su ocurrencia.
-- Los crons (materializar ocurrencias, marcar vencidas, disparar alertas) protegidos con
-  `pg_try_advisory_xact_lock`, igual que `subscription-scheduler.service.ts` de `ms-payments`.
-- `due_day = 31` se recorta al último día del mes.
+**Materializar es idempotente por diseño.** `OccurrenceMaterializerService` inserta con
+`orIgnore()` apoyado en `UNIQUE(commitment_id, period)`, así que correr el cron dos veces el
+mismo día no duplica ni pisa montos ya ajustados a mano. Es lo que permite materializar también
+al crear o editar un compromiso sin coordinar nada con el cron.
+
+**Nunca se materializa hacia atrás.** `plannedPeriods()` arranca en el mayor entre
+`startPeriod` y el mes actual: dar de alta hoy un préstamo que empezó en enero no inventa ocho
+meses de deuda retroactiva. Si el compromiso arranca en el futuro, se materializa desde su
+primer mes.
+
+**`OccurrencesService.recalculate()` es la única puerta que cambia el estado de pago.** Crear,
+editar, mover o borrar una transacción enlazada pasa por ahí; `paidAmount` sale siempre de
+`SUM(transactions)` y nunca se escribe a mano. Al mover un pago de un vencimiento a otro hay que
+recalcular **los dos** — por eso `update()` guarda el `occurrenceId` anterior antes del
+`Object.assign`.
+
+**`SKIPPED` es terminal.** Ni el recálculo ni el cron de vencidas lo reabren; solo el usuario,
+con `PATCH { status: 'PENDING' }`.
+
+**Sin `expectedAmount`, cualquier pago liquida.** Una tarjeta cuyo corte aún no llega no tiene
+monto contra el cual comparar, así que un pago > 0 la marca `PAID` en vez de dejarla `PARTIAL`
+para siempre.
+
+Los crons viven en `occurrences-scheduler.service.ts`, protegidos con `pg_try_advisory_xact_lock`
+igual que `subscription-scheduler.service.ts` de `ms-payments`. Iteran usuario por usuario porque
+el "hoy" y el "mes actual" dependen de la `timezone` de cada uno.
+
+En `OccurrencesController`, la ruta `upcoming` va declarada **antes** que `:id`, o `ParseIntPipe`
+se comería la palabra.
+
+### Lo que falta (F3-F4)
+
+- `alerts` colgando de la ocurrencia, con `UNIQUE(occurrence_id, kind, days_before, channel)`
+  para idempotencia — mismo espíritu que la tabla `webhook_events` de `ms-payments`.
+- Cron diario que lea `commitment.alertDaysBefore` (ya está en la tabla) y mande por Telegram.
+- `users.telegram_chat_id` ya existe; falta el endpoint para poblarlo.
+- Presupuestos por categoría y reportes.
 
 ## Transversal
 

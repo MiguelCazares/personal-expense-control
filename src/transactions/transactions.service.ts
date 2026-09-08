@@ -11,6 +11,8 @@ import { CreateTransactionDto } from 'src/transactions/dto/create-transaction.dt
 import { UpdateTransactionDto } from 'src/transactions/dto/update-transaction.dto';
 import { FilterTransactionDto } from 'src/transactions/dto/filter-transaction.dto';
 import { PaginatedResponseDto } from 'src/common/dto/pagination-response.dto';
+import { CommitmentOccurrenceEntity } from 'src/occurrences/entities/commitment-occurrence.entity';
+import { OccurrencesService } from 'src/occurrences/occurrences.service';
 
 @Injectable()
 export class TransactionsService {
@@ -19,13 +21,25 @@ export class TransactionsService {
     private readonly transactionRepository: Repository<TransactionEntity>,
     @InjectRepository(CategoryEntity)
     private readonly categoryRepository: Repository<CategoryEntity>,
+    @InjectRepository(CommitmentOccurrenceEntity)
+    private readonly occurrenceRepository: Repository<CommitmentOccurrenceEntity>,
+    private readonly occurrencesService: OccurrencesService,
   ) {}
 
   async create(
     userId: number,
+    timezone: string,
     dto: CreateTransactionDto,
   ): Promise<TransactionEntity> {
     const category = await this.resolveCategory(userId, dto.categoryId);
+
+    if (dto.occurrenceId) {
+      await this.assertOccurrenceIsUsable(
+        userId,
+        dto.occurrenceId,
+        category.id,
+      );
+    }
 
     const saved = await this.transactionRepository.save(
       this.transactionRepository.create({
@@ -36,6 +50,8 @@ export class TransactionsService {
         userId,
       }),
     );
+
+    await this.syncOccurrences(timezone, [dto.occurrenceId]);
 
     return this.findOne(userId, saved.id);
   }
@@ -105,26 +121,86 @@ export class TransactionsService {
 
   async update(
     userId: number,
+    timezone: string,
     id: number,
     dto: UpdateTransactionDto,
   ): Promise<TransactionEntity> {
     const transaction = await this.findOne(userId, id);
+    // Se guarda el enlace anterior para recalcular también la ocurrencia de la
+    // que el movimiento se está yendo, no solo la nueva.
+    const previousOccurrenceId = transaction.occurrenceId;
 
+    let categoryId = transaction.categoryId;
     if (dto.categoryId && dto.categoryId !== transaction.categoryId) {
       const category = await this.resolveCategory(userId, dto.categoryId);
       transaction.category = category;
       transaction.type = category.type;
+      categoryId = category.id;
+    }
+
+    if (dto.occurrenceId) {
+      await this.assertOccurrenceIsUsable(userId, dto.occurrenceId, categoryId);
     }
 
     Object.assign(transaction, dto);
     await this.transactionRepository.save(transaction);
 
+    await this.syncOccurrences(timezone, [
+      previousOccurrenceId,
+      transaction.occurrenceId,
+    ]);
+
     return this.findOne(userId, id);
   }
 
-  async remove(userId: number, id: number): Promise<void> {
+  async remove(userId: number, timezone: string, id: number): Promise<void> {
     const transaction = await this.findOne(userId, id);
     await this.transactionRepository.delete({ id: transaction.id, userId });
+
+    await this.syncOccurrences(timezone, [transaction.occurrenceId]);
+  }
+
+  /**
+   * Recalcula el estado de las ocurrencias tocadas. Se ignoran los null y los
+   * repetidos para no pegarle dos veces a la misma cuando un movimiento se
+   * mueve dentro del mismo vencimiento.
+   */
+  private async syncOccurrences(
+    timezone: string,
+    occurrenceIds: (number | null | undefined)[],
+  ): Promise<void> {
+    const today = this.occurrencesService.todayFor(timezone);
+    const unique = new Set(
+      occurrenceIds.filter((id): id is number => typeof id === 'number'),
+    );
+
+    for (const occurrenceId of unique) {
+      await this.occurrencesService.recalculate(occurrenceId, today);
+    }
+  }
+
+  /**
+   * Un movimiento solo puede liquidar un vencimiento del mismo usuario y de la
+   * misma categoría: enlazar el pago de la AMEX contra el vencimiento de BBVA
+   * cuadraría el mes equivocado.
+   */
+  private async assertOccurrenceIsUsable(
+    userId: number,
+    occurrenceId: number,
+    categoryId: number,
+  ): Promise<void> {
+    const occurrence = await this.occurrenceRepository.findOne({
+      where: { id: occurrenceId, userId },
+      relations: { commitment: true },
+    });
+
+    if (!occurrence) throw new NotFoundException('Vencimiento no encontrado');
+
+    if (occurrence.commitment.categoryId !== categoryId) {
+      throw new BadRequestException(
+        'El vencimiento pertenece a otra categoría que la del movimiento',
+      );
+    }
   }
 
   private async resolveCategory(
