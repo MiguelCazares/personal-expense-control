@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ForbiddenException,
   Injectable,
   UnauthorizedException,
@@ -13,6 +14,8 @@ import { RegisterDto } from 'src/auth/dto/register.dto';
 import { LoginDto } from 'src/auth/dto/login.dto';
 import { AuthResponseDto, PublicUserDto } from 'src/auth/dto/auth-response.dto';
 import { JwtPayload } from 'src/auth/dto/jwt-payload.interface';
+import { UpdateProfileDto } from 'src/auth/dto/update-profile.dto';
+import { assignDefined } from 'src/common/utils/assign-defined.util';
 import { JwtExpiresIn } from 'src/config/jwt.config';
 
 const BCRYPT_ROUNDS = 12;
@@ -80,6 +83,31 @@ export class AuthService {
     }
 
     return this.buildAuthResponse(user);
+  }
+
+  async updateProfile(
+    userId: number,
+    dto: UpdateProfileDto,
+  ): Promise<PublicUserDto> {
+    const user = await this.userRepository.findOneBy({ id: userId });
+    if (!user) throw new UnauthorizedException('Token inválido');
+
+    // La zona no se valida contra una lista: Intl ya rechaza una zona inventada
+    // al primer uso, y mejor fallar aquí que en el cron de alertas.
+    if (dto.timezone) this.assertTimezoneIsValid(dto.timezone);
+
+    assignDefined(user, dto);
+    await this.userRepository.save(user);
+
+    return this.toPublicUser(user);
+  }
+
+  private assertTimezoneIsValid(timezone: string): void {
+    try {
+      new Intl.DateTimeFormat('en-CA', { timeZone: timezone });
+    } catch {
+      throw new BadRequestException(`Zona horaria inválida: ${timezone}`);
+    }
   }
 
   /** Usado por JwtStrategy para resolver el token a un usuario vigente. */

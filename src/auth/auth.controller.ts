@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Patch,
   Post,
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
@@ -13,6 +14,7 @@ import {
 } from '@miguelcazares/nestjs-response-helper';
 import { AuthService } from 'src/auth/auth.service';
 import { RegisterDto } from 'src/auth/dto/register.dto';
+import { UpdateProfileDto } from 'src/auth/dto/update-profile.dto';
 import { LoginDto } from 'src/auth/dto/login.dto';
 import { AuthResponseDto, PublicUserDto } from 'src/auth/dto/auth-response.dto';
 import { CurrentUser } from 'src/auth/decorators/current-user.decorator';
@@ -54,5 +56,18 @@ export class AuthController {
   @AuthSwagger.Me()
   me(@CurrentUser() user: UserEntity): JsonResponse<PublicUserDto> {
     return ResponseHelper.jsendSuccess(this.authService.toPublicUser(user));
+  }
+
+  @Patch('me')
+  @ApiBearerAuth('bearer')
+  @ApiOperation({
+    summary: 'Actualiza nombre, zona horaria o el chat de Telegram',
+  })
+  async updateProfile(
+    @CurrentUser() user: UserEntity,
+    @Body() dto: UpdateProfileDto,
+  ): Promise<JsonResponse<PublicUserDto>> {
+    const result = await this.authService.updateProfile(user.id, dto);
+    return ResponseHelper.jsendSuccess(result);
   }
 }

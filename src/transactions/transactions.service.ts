@@ -11,6 +11,7 @@ import { CreateTransactionDto } from 'src/transactions/dto/create-transaction.dt
 import { UpdateTransactionDto } from 'src/transactions/dto/update-transaction.dto';
 import { FilterTransactionDto } from 'src/transactions/dto/filter-transaction.dto';
 import { PaginatedResponseDto } from 'src/common/dto/pagination-response.dto';
+import { assignDefined } from 'src/common/utils/assign-defined.util';
 import { CommitmentOccurrenceEntity } from 'src/occurrences/entities/commitment-occurrence.entity';
 import { OccurrencesService } from 'src/occurrences/occurrences.service';
 
@@ -142,7 +143,7 @@ export class TransactionsService {
       await this.assertOccurrenceIsUsable(userId, dto.occurrenceId, categoryId);
     }
 
-    Object.assign(transaction, dto);
+    assignDefined(transaction, dto);
     await this.transactionRepository.save(transaction);
 
     await this.syncOccurrences(timezone, [

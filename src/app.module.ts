@@ -27,6 +27,7 @@ import { TransactionsModule } from 'src/transactions/transactions.module';
 import { SummaryModule } from 'src/summary/summary.module';
 import { CommitmentsModule } from 'src/commitments/commitments.module';
 import { OccurrencesModule } from 'src/occurrences/occurrences.module';
+import { AlertsModule } from 'src/alerts/alerts.module';
 
 @Module({
   imports: [
@@ -68,6 +69,7 @@ import { OccurrencesModule } from 'src/occurrences/occurrences.module';
     SummaryModule,
     CommitmentsModule,
     OccurrencesModule,
+    AlertsModule,
   ],
   controllers: [AppController],
   providers: [

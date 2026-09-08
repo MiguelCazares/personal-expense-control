@@ -28,7 +28,10 @@ export class CreateCategoryDto {
   })
   @IsOptional()
   @IsEnum(CategoryNature)
-  nature?: CategoryNature = CategoryNature.VARIABLE;
+  // Sin inicializador a propósito: UpdateCategoryDto hereda de este DTO vía
+  // PartialType, y un default aquí se colaba en cada PATCH reseteando la
+  // categoría a VARIABLE. El default vive en CategoriesService.create().
+  nature?: CategoryNature;
 
   @ApiPropertyOptional({ example: '#00b2e3' })
   @IsOptional()

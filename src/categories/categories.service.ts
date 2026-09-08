@@ -12,6 +12,7 @@ import { UpdateCategoryDto } from 'src/categories/dto/update-category.dto';
 import { FilterCategoryDto } from 'src/categories/dto/filter-category.dto';
 import { PaginatedResponseDto } from 'src/common/dto/pagination-response.dto';
 import { CategoryNature } from 'src/categories/enums/category-nature.enum';
+import { assignDefined } from 'src/common/utils/assign-defined.util';
 import { MovementType } from 'src/common/enums/movement-type.enum';
 
 @Injectable()
@@ -101,9 +102,7 @@ export class CategoriesService {
       await this.assertNameIsFree(userId, dto.name, category.type, id);
     }
 
-    Object.assign(category, dto, {
-      name: dto.name?.trim() ?? category.name,
-    });
+    assignDefined(category, { ...dto, name: dto.name?.trim() });
 
     return this.categoryRepository.save(category);
   }

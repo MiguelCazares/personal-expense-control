@@ -35,9 +35,15 @@ NODE_ENV=test npx jest -t "closes registration"          # un test por nombre
 Las suites e2e comparten **una sola base de test y la truncan** en `beforeAll`
 (`test/helpers/reset-db.ts`). Por eso `--runInBand` no es opcional, y por eso no se puede
 tener dos corridas de jest a la vez contra la misma DB: se borran los datos entre ellas y
-salen fallos fantasma. Si ves un fallo raro e irreproducible, revisa que no haya quedado un
-jest vivo (`pkill -f jest`). Al agregar tablas nuevas, súmalas al TRUNCATE del helper o la
-limpieza dejará residuos.
+salen fallos fantasma (404 y 200 vacíos donde debería haber datos). Si ves un fallo raro e
+irreproducible, revisa primero que no haya quedado un jest vivo: `pgrep -fl jest.js`. Al
+agregar tablas nuevas, súmalas al TRUNCATE del helper o la limpieza dejará residuos.
+
+**En tests el logger no monta transports** (`infrastructure/logger.module.ts` corta cuando
+`app.env === 'test'`). Cada `target` de pino levanta un worker thread y cada suite e2e crea su
+propia app; esos workers no se cierran con `app.close()`, jest se queda colgado con "Jest did
+not exit" y deja un proceso huérfano que pelea la DB con la corrida siguiente. No devuelvas los
+transports al camino de test.
 
 ts-jest corre en modo transpile-only, gobernado por `isolatedModules: true` en `tsconfig.json`
 (no hay bloque `transform` en `jest.config.ts`). No lo quites: construir el programa completo de
@@ -154,13 +160,32 @@ el "hoy" y el "mes actual" dependen de la `timezone` de cada uno.
 En `OccurrencesController`, la ruta `upcoming` va declarada **antes** que `:id`, o `ParseIntPipe`
 se comería la palabra.
 
-### Lo que falta (F3-F4)
+### Alertas (F3)
 
-- `alerts` colgando de la ocurrencia, con `UNIQUE(occurrence_id, kind, days_before, channel)`
-  para idempotencia — mismo espíritu que la tabla `webhook_events` de `ms-payments`.
-- Cron diario que lea `commitment.alertDaysBefore` (ya está en la tabla) y mande por Telegram.
-- `users.telegram_chat_id` ya existe; falta el endpoint para poblarlo.
+**El UNIQUE es lo que hace idempotente al cron**, igual que `webhook_events` en `ms-payments`:
+`UNIQUE(occurrence_id, kind, days_before, channel)` + `orIgnore()` significa que generar dos
+veces el mismo día no manda dos mensajes.
+
+**`plannedAlert()` devuelve como mucho un aviso por día.** Si el mismo día coincidieran
+"faltan 5 días" y "vence hoy", gana el más urgente; mandar dos mensajes seguidos sería ruido.
+Vencido gana sobre todo lo demás y solo se avisa una vez, no cada día.
+
+**El canal está detrás del token `NOTIFICATION_CHANNEL`.** Un `useFactory` inyecta
+`TelegramMockService` cuando `app.env === 'test'` o cuando `TELEGRAM_ENABLED` es false, si no el
+`TelegramService` real. Es el mismo patrón que el `STRIPE_SERVICE` de `ms-payments`, y es lo que
+garantiza que la suite nunca salga a la red. No importes `fetch` a Telegram fuera de
+`telegram.service.ts`.
+
+**Un envío fallido no tumba el lote**: se guarda `lastError`, se suma un `attempt` y la alerta
+queda sin `sentAt` para el siguiente ciclo, hasta `MAX_SEND_ATTEMPTS`.
+
+El cron corre **cada hora** y filtra por la hora local de cada usuario, porque `@Cron` solo
+acepta expresiones estáticas y la hora deseada vive en `ALERTS_CRON_HOUR`.
+
+### Lo que falta (F4)
+
 - Presupuestos por categoría y reportes.
+- El front en Nuxt/Quasar, espejo de `invoixup-frontend`.
 
 ## Transversal
 

@@ -71,6 +71,7 @@ del usuario del token.
 | `POST` | `/api/auth/register` | Alta del propietario, solo con la tabla vacía (pública) |
 | `POST` | `/api/auth/login` | Devuelve `{ access_token, user }` (pública) |
 | `GET` | `/api/auth/me` | Usuario del token |
+| `PATCH` | `/api/auth/me` | Nombre, zona horaria y `telegramChatId` |
 | `POST` | `/api/categories` | Crea una categoría |
 | `GET` | `/api/categories` | `?name=&type=&nature=&includeArchived=&page=&limit=` |
 | `GET` | `/api/categories/:id` | Detalle |
@@ -92,6 +93,8 @@ del usuario del token.
 | `GET` | `/api/occurrences` | `?status=&commitmentId=&period=&from=&to=&page=&limit=` |
 | `GET` | `/api/occurrences/:id` | Detalle |
 | `PATCH` | `/api/occurrences/:id` | Ajusta el monto del mes u omítelo (`{ status: "SKIPPED" }`) |
+| `GET` | `/api/alerts` | `?kind=&pending=&page=&limit=` — historial de avisos |
+| `POST` | `/api/alerts/test` | Manda un mensaje de prueba a tu Telegram |
 
 ### Cómo funcionan los movimientos
 
@@ -143,16 +146,49 @@ diario mantiene esa ventana. Detalles que importan:
 - **Cambiar el día o el monto del compromiso solo mueve lo aún pendiente**; lo pagado y lo
   omitido son historia y no se reescriben.
 
+### Alertas por Telegram
+
+**Configuración, una sola vez:**
+
+1. Crea un bot con [@BotFather](https://t.me/BotFather) y guarda el token en
+   `TELEGRAM_BOT_TOKEN`; pon `TELEGRAM_ENABLED=true`.
+2. Escríbele **tú** al bot (un `/start` basta) — Telegram no deja que un bot inicie la
+   conversación.
+3. Saca tu `chat_id` de `https://api.telegram.org/bot<TOKEN>/getUpdates` y regístralo:
+
+```bash
+curl -X PATCH http://localhost:3010/api/auth/me \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"telegramChatId":"123456789"}'
+
+# Verifica que llega
+curl -X POST http://localhost:3010/api/alerts/test -H "Authorization: Bearer $TOKEN"
+```
+
+Cada compromiso decide con cuánta anticipación avisar en `alertDaysBefore` (por defecto
+`[5, 1, 0]`). Reglas:
+
+- **Un solo aviso por día y vencimiento**: si coincidieran «faltan 5» y «vence hoy», gana el más
+  urgente en vez de mandar dos mensajes.
+- **Un solo aviso de vencido** por vencimiento, no un recordatorio diario.
+- **Lo pagado y lo omitido no avisan.**
+- El mensaje lleva el **saldo pendiente**, no el total: si ya abonaste algo, lo útil es lo que
+  falta.
+- Si un envío falla se anota el error en la alerta y se reintenta hasta 3 veces; el resto del
+  lote sigue.
+
 ### Los crons
 
 | Cron | Hora | Qué hace |
 |---|---|---|
 | `materializeUpcoming` | 00:10 | Rellena los próximos 3 meses de cada compromiso activo |
 | `markOverdue` | 00:20 | Pasa a `OVERDUE` lo pendiente cuya fecha ya pasó |
+| `dispatchDailyAlerts` | cada hora | Genera y envía los avisos de los usuarios cuya hora local sea `ALERTS_CRON_HOUR` |
 
-Ambos se protegen con un advisory lock de Postgres, así que con varias instancias solo una hace
+Todos se protegen con un advisory lock de Postgres, así que con varias instancias solo una hace
 el trabajo. El «hoy» se calcula por usuario con su `timezone`: un vencimiento no está atrasado
-hasta que terminó el día de quien tiene que pagarlo.
+hasta que terminó el día de quien tiene que pagarlo. El de alertas corre cada hora justamente
+para poder respetar la zona de cada quien, ya que `@Cron` no acepta una hora dinámica.
 
 ## Variables de entorno
 
@@ -174,5 +210,5 @@ hasta que terminó el día de quien tiene que pagarlo.
 - **F0 — hecho.** Esqueleto, config, infraestructura, auth JWT, health, Swagger, migración inicial.
 - **F1 — hecho.** `categories` + `transactions` + resumen mensual y cashflow.
 - **F2 — hecho.** `commitments` + `commitment_occurrences`, crons de materialización y vencidos, conciliación de pagos.
-- **F3.** `alerts` + envío por Telegram.
+- **F3 — hecho.** `alerts` idempotentes + envío por Telegram con reintentos.
 - **F4.** Presupuestos por categoría y reportes.

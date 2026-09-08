@@ -89,6 +89,29 @@ describe('Categories, transactions y summary (e2e)', () => {
         .expect(HttpStatus.NO_CONTENT);
     });
 
+    it('un PATCH parcial no toca los campos que no se mandaron', async () => {
+      // Regresión: el default de `nature` en CreateCategoryDto se colaba por
+      // PartialType y cada PATCH reseteaba la categoría a VARIABLE.
+      const response = await request(app.getHttpServer())
+        .patch(`/api/categories/${amex.id}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ name: 'Tarjeta de crédito AMEX' })
+        .expect(HttpStatus.OK);
+
+      const patched = (response.body as SuccessResponse<CategoryEntity>).data;
+      expect(patched.nature).toBe(CategoryNature.FIXED);
+      expect(patched.color).toBe('#00b2e3');
+      expect(patched.isArchived).toBe(false);
+
+      // Y tampoco en la base, no solo en la respuesta.
+      const reread = await get(`/api/categories/${amex.id}`).expect(
+        HttpStatus.OK,
+      );
+      expect((reread.body as SuccessResponse<CategoryEntity>).data.nature).toBe(
+        CategoryNature.FIXED,
+      );
+    });
+
     it('no deja ver las categorías de otro usuario', async () => {
       await get(`/api/categories/${nomina.id}`, otherToken).expect(
         HttpStatus.NOT_FOUND,

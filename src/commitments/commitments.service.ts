@@ -18,6 +18,7 @@ import { OccurrenceStatus } from 'src/occurrences/enums/occurrence-status.enum';
 import { OccurrenceMaterializerService } from 'src/occurrences/occurrence-materializer.service';
 import { dueDateFor, monthsBetween } from 'src/commitments/utils/due-date.util';
 import { currentPeriod } from 'src/summary/utils/period.util';
+import { assignDefined } from 'src/common/utils/assign-defined.util';
 
 @Injectable()
 export class CommitmentsService {
@@ -133,7 +134,7 @@ export class CommitmentsService {
       dto.endPeriod ?? commitment.endPeriod ?? undefined,
     );
 
-    Object.assign(commitment, dto);
+    assignDefined(commitment, dto);
     await this.commitmentRepository.save(commitment);
 
     // Cambiar el día de vencimiento o el monto solo afecta lo que aún no se ha
